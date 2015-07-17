@@ -1,0 +1,32 @@
+{
+  "name": "stv-calculate",
+  "version": "0.1.0",
+  "description": "A small library to calculate STV election results.",
+  "main": "src/index.js",
+  "directories": {
+    "test": "tests"
+  },
+  "scripts": {
+    "test": "grunt test"
+  },
+  "keywords": [
+    "election",
+    "stv",
+    "candidates"
+  ],
+  "author": "Will Jones",
+  "license": "MIT",
+  "devDependencies": {
+    "chai": "^3.1.0",
+    "grunt": "^0.4.5",
+    "grunt-contrib-jshint": "^0.11.2",
+    "grunt-contrib-watch": "^0.6.1",
+    "grunt-mocha-test": "^0.12.7",
+    "jshint": "^2.8.0",
+    "load-grunt-tasks": "^3.2.0",
+    "mocha": "^2.2.5"
+  },
+  "dependencies": {
+    "chai": "^3.1.0"
+  }
+}

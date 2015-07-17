@@ -1,0 +1,3 @@
+# STV Calculation
+## _A JavaScript Algorithm for Calculating Single Transferable Vote Election Results_
+This library is intended to calculate election results. Interface coming soon...
