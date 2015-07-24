@@ -13,7 +13,7 @@ module.exports = CandidateNode;
  * With this structure, when we need to eliminate a candidate, we just redistribute that
  * candidate's children nodes to the correspondings trees and merge those trees.
  *
- * @param {Candidate Object} cand a candidate object with a 'name' and 'id' property
+ * @param {Candidate Object} cand a candidate object with an 'id' property
  * @param {number} count the count of votes for that node
  */
 function CandidateNode(cand, count) {
@@ -27,7 +27,7 @@ function CandidateNode(cand, count) {
  * to string method
  */
 CandidateNode.prototype.toString = function() {
-  return '[ ' + this.cand.name + ': ' + this.count + ' ]';
+  return '[ ' + this.cand.toString() + ': ' + this.count + ' ]';
 };
 
 /**

@@ -1,189 +1,154 @@
+var CandidateNode = require('./candidate'),
+    R = require('ramda');
+
+module.exports = calculate;
+
 /**
-  __STV Election Tabulation__
+ * @function calculate does the caclulations for an election
+ * @param {array} ballots an array of ballot data
+ * @param {integer} seats the number of availible seats
+ */
+function calculate(ballots, seats) {
+    var tree = createElectionTree(ballots),
+        finalists = {},
+        messages = [],
+        curr_threshold,
+        key,
+        new_finalist,
+        had_surplus;
 
-  Each ballot is stored as a list of candidate ids, ordered by the rank the
-  voter has assigned the candidate. Instead of working with individual ballots
-  during calculations, this algorithm creates a tree structure that represents
-  possible ways of voting and how many people voted in that particular way.
-
-  Each node will have a count and candidate associated with it. It will also
-  have a dictionary of child nodes, each of which represent the count of voters
-  who chose a particular candidate as their next choice.
-
-  Thus, when we need to eliminate a candidate, we just redistriubte that
-  candidate's children nodes to the corresponding trees, and merge those.
-*/
-
-
-
-function Candidate(name, id) {
-  this.name = name;
-  this.id = id;
-}
-
-
-function createCandidateTree(ballots, candidates) {
-  // Make values in cadidates object all instances of Candidate
-  var ids = Object.keys(candidates);
-  for (var i = 0; i < ids.length; i++)
-    candidates[ids[i]] = new Candidate(candidates[ids[i]], ids[i]);
-  
-  var trees = {}; // this will be the output.
-
-  for (i = 0; i < ballots.length; i++) {
-    // Create root tree if necessary
-    if (Object.keys(trees).indexOf(ballots[i][0]) === -1)
-      trees[ballots[i][0]] = new CandidateNode(candidates[ballots[i][0]]);
-    
-    var node = trees[ballots[i][0]];
-
-
-    
-    for (var j = 0; j < ballots[i].length; j++) {
-      // Add one to current node
-      node.count += 1;
-      // if there is no next vote, break
-      if (j === ballots[i].length - 1)
-	break;
-      else {
-	var nextID = ballots[i][j+1];
-	if (Object.keys(node.children).indexOf(nextID) === -1)
-	  node.addChild(candidates[nextID]);
-	node = node.children[nextID];
-      }
+    while (Object.keys(finalists).length < seats) {
+        console.log('tree: ', tree);
+        // 1. Calculate threshold
+        curr_threshold = threshold(tree, seats);
+        console.log('Threshold: ', curr_threshold);
+        // 2. Check for finalists
+        new_finalist = false;
+        for (key in tree)
+            if (tree[key].count >= curr_threshold &&
+               !(key in finalists)) {
+                new_finalist = true;
+                finalists[key] = tree[key].cand;
+            }
+        if (new_finalist)
+            continue;
+        // 3. Check for surplus
+        had_surplus = false;
+        while(is_surplus(tree, curr_threshold)) {
+            had_surplus = true;
+            for (key in tree)
+                if (tree[key].count > curr_threshold)
+                    surplus(key, tree, curr_threshold, finalists);
+            // Update threshold for next iteration of while loop
+            curr_threshold = threshold(tree, seats);
+        }
+        if (had_surplus) {
+            messages.push('Surplus!');
+            continue;
+        }
+        // 4. Eliminate the lowest rankings candidate
+        var lowest_ranked = Object.keys(tree)[0];
+        for (key in tree)
+            if (tree[key].count < tree[lowest_ranked].count)
+                lowest_ranked = key;
+        console.log('Eliminate: ', tree[lowest_ranked].cand.name);
+        eliminate(lowest_ranked, tree, finalists);
+        messages.push('Eliminated');
     }
-  }
-  return trees;
+    return { finalists : finalists,
+             messages : messages };
 }
 
-function countBallots(trees, finalists) {
-  // Returns the total number of ballots represented in the given set of
-  // candidate trees.
-  var numBallots = 0;
-  for (var key in trees)
-    numBallots += trees[key].count;
-  for (var i = 0; i < finalists.length; i++)
-    numBallots += finalists[i].count;
-  return numBallots;
+function is_surplus(tree, threshold) {
+    function has_surplus(key) { return tree[key].count > threshold; }
+    function or(a, b) { return a || b; }
+    return Object.keys(tree).map(has_surplus).reduce(or);
 }
 
-function distribute(tree_list, trees) {
-  for (var key in tree_list) {
-    // If the tree we need to merge does not exist, distribute the children
-    if (Object.keys(trees).indexOf(key) === -1)
-      distribute(tree_list[key].children, trees);
-    else
-      trees[key] = trees[key].add(tree_list[key]);
-  }
+function threshold(tree, seats) {
+    function count(key) { return tree[key].count; }
+    function sum(a, b) { return a + b; }
+    var num_ballots = Object.keys().map(count).reduce(sum);
+    return ( num_ballots / (seats + 1) ) + 1;
 }
 
-function surplus(key, trees, quota) {
-  // Redistributes the extra votes from a candidate who has more votes than
-  // needed for the qouta.
-  var total_votes = trees[key].count;
-  var surplus_votes = total_votes - quota;
-  var surplus_prop = surplus_votes / total_votes;
-  var non_surplus_prop = 1 - surplus_prop;
-
-  trees[key] = trees[key].multiply(non_surplus_prop);
-
-  var extra_children = {};
-  for (var i in trees[key].children)
-    extra_children[i] = trees[key].children[i].multiply(surplus_prop);
-
-  distribute(extra_children, trees);
+function eliminate(key, tree, finalists) {
+    var branch = tree[key];
+    delete tree[key];
+    var children = branch.children;
+    distribute(children, tree, finalists);
 }
 
-function eliminate(key, trees) {
-  // Eliminates a given candidate node and then redistributes their votes.
-  var tree = trees[key];
-  delete trees[key];
-  children = tree.children;
-  distribute(children, trees);
+/**
+ * @function surplus redistributes the surplus votes of a candidate
+ * @param {integer} key the key of the candidate in the tree object
+ * @param {Candidate Tree} tree the current candidate tree
+ * @param {number} curr_threshold the current winning threshold
+ */
+function surplus(key, tree, curr_threshold, finalists) {
+    var total_votes = tree[key].count,
+        surplus_votes = total_votes - curr_threshold,
+        surplus_prop = surplus_votes / total_votes,
+        non_surplus_prop = 1 - surplus_prop;
+
+    tree[key] = tree[key].multiply(non_surplus_prop);
+
+    var extra_children = {};
+    for (var i in tree[key].children)
+        extra_children[i] = tree[key].children[i].multiply(surplus_prop);
+
+    distribute(extra_children, tree, finalists);
 }
 
+/**
+ * @function distribute generic function to redistribute votes
+ * @param {array of CandidateNodes} tree_list nodes to distribute
+ * @param {Candidate Tree} tree the current candidate tree
+ */
+function distribute(tree_list, tree, finalists) {
+    for (var key in tree_list) {
+        /* If the tree to merge into does not exist or is a finalists, merge
+           the children. */
+        if (Object.keys(tree).indexOf(key) === -1 ||
+            Object.keys(finalists).indexOf(key) !== -1)
+            distribute(tree_list[key].children, tree, finalists);
+        else
+            tree[key] = tree[key].add(tree_list[key]);
+    }
+}
 
-exports.calculateSTV = function(candidates, ballots, seats) {
-  // 1. Create the trees
-  var trees = createCandidateTree(ballots, candidates);
+/**
+ * @function createElectionTree Creates a tree structure to represent the election
+ *   state.
+ * @param {array} ballots an array of ballot data
+ * @param {function} accessor a function that takes an element of the ballots
+ *   array and returns a list of candidate objects, in the order of preference
+ * @returns A tree of candidate nodes.
+ */
+function createElectionTree(ballots) {
+    // Create the trees by adding each ballot to it, starting with empty object
+    var trees = ballots.reduce(addBallot, {});
 
-  // 2. STV Rounds
-  var finalists = [];
-  var messages = [];
+    function addBallot(tree, ballot) {
+        var level = tree;
+        ballot.forEach(addVote);
+        return tree;
 
-  var i = 0;
-  // report initial conditions
-  messages.push(STVRound(trees, i, 'No rounds yet'));
-  i++;
-
-  while (Object.keys(trees).length > 0) {
-    // This really is a while loop...
-    var num_ballots = countBallots(trees, finalists);
-    var quota = Math.floor( num_ballots / (seats + 1) + 1 );
-
-    // First, check for surplus
-    var surplus_cand = [];
-    for (var key in trees)
-      if (trees[key].count >= quota) {
-	surplus_cand.push(trees[key].cand.name);
-	// Redistribute the surplus votes
-	surplus(key, trees, quota);
-	// Add the candidate to the finalists
-	finalists.push(trees[key]);
-	// Remove the candidate from the trees
-	delete trees[key];
-      }
-    if (surplus_cand.length > 0) {
-      console.log('surplus!' + surplus_cand.join());
-      messages.push(STVRound(trees, finalists, i,
-			     "Surplus: " + surplus_cand.join(', ')));
-      i++;
-      continue;
+        function addVote(cand) {
+            if (!hasCandidateNode(level, cand))
+                level[cand.id] = new CandidateNode(cand);
+            level[cand.id].count += 1;
+            level = level[cand.id].children;
+        }
     }
 
-    // If no surplus, eliminate the candidate with the fewest first place votes
-    var running_min_key = Object.keys(trees)[0];
-    for ( key in trees)
-      if (trees[key].count < trees[running_min_key].count)
-	running_min_key = key;
-    var eliminated_cand = trees[running_min_key].cand.name;
-    eliminate(running_min_key, trees);
-    messages.push(STVRound(trees, finalists, i,
-			   "Eliminating: " + eliminated_cand));
+    return trees;
+}
 
-
-    i++;
-  }
-
-  return {'messages': messages};
-};
-
-function STVRound(trees, finalists, iteration, message) {
-  return { 'iteration' : iteration,
-	   'message' : message,
-	   'status' : statusCheck(trees, finalists)};
+function hasCandidateNode(object, cand) {
+    return object.hasOwnProperty(cand.id);
 }
 
 
-function statusCheck(trees, finalists) {
-  var output = [];
-  // Record the current candidates
-  for (var key in trees) {
-    if (trees[key] !== null) {
-      output.push({'id': trees[key].cand.id,
-		   'name': trees[key].cand.name,
-		   'count': trees[key].count});
-    }
-  }
-  // Record the current victors
-  for (var i = 0; i < finalists.length; i++) {
-      output.push({'id': finalists[i].cand.id,
-		   'name': finalists[i].cand.name,
-		   'count': finalists[i].count});
-  }
-  // sort by id
-  output.sort(function (a,b) {
-    return a.id - b.id;
-  });
-  return output;
-}
+
+
